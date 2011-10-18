@@ -81,9 +81,9 @@
 
 
 #if UIP_CONF_IPV6
-PROCINIT(&etimer_process, &tcpip_process, &sensors_process);
+PROCINIT(&tcpip_process, &sensors_process);
 #else
-PROCINIT(&etimer_process, &sensors_process);
+PROCINIT(&sensors_process);
 #warning "No TCP/IP process!"
 #endif
 
@@ -160,7 +160,11 @@ main(void)
   uart1_set_input(serial_line_input_byte);
   serial_line_init();
 #endif
-  
+  //etimer_process should be started before ctimer init
+  process_start(&etimer_process, NULL);
+  //ctimer and rtimer should be initialized before netstack to enable RDC (cxmac, contikimac, lpp)   
+  ctimer_init();
+  rtimer_init();
   netstack_init();
 #if !UIP_CONF_IPV6
   ST_RadioEnableAutoAck(FALSE); // Because frames are not 802.15.4 compatible. 
@@ -168,9 +172,6 @@ main(void)
 #endif
 
   set_rime_addr();
-  
-  ctimer_init();
-  rtimer_init();
   
   procinit_init();    
 
