@@ -82,17 +82,18 @@ typedef unsigned short uip_stats_t;
 
 #if WITH_UIP6
 
-/* No radio cycling */
+/* Radio cycling */
 #define NETSTACK_CONF_NETWORK		sicslowpan_driver
-#define NETSTACK_CONF_MAC		nullmac_driver
-#define NETSTACK_CONF_RDC		sicslowmac_driver
+#define NETSTACK_CONF_MAC		csma_driver
+#define NETSTACK_CONF_RDC		cxmac_driver
 #define NETSTACK_CONF_FRAMER		framer_802154
-
+/* Channel check rate */
+#define NETSTACK_CONF_RDC_CHANNEL_CHECK_RATE 16
 #define RIMEADDR_CONF_SIZE              8
 #define UIP_CONF_LL_802154              1
 
-#define UIP_CONF_ROUTER				1
-#define UIP_CONF_IPV6_RPL			1
+#define UIP_CONF_ROUTER				0
+#define UIP_CONF_IPV6_RPL			0
 #define UIP_CONF_ND6_SEND_RA			0
 //#define RPL_BORDER_ROUTER			0
 
