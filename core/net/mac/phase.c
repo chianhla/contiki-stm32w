@@ -197,8 +197,16 @@ phase_wait(struct phase_list *list,
     now = RTIMER_NOW();
 
     sync = (e == NULL) ? now : e->time;
-    wait = (rtimer_clock_t)((sync - now) &
-                            (cycle_time - 1));
+    if((RTIMER_ARCH_SECOND & (RTIMER_ARCH_SECOND - 1)) == 0)
+    {
+    	wait = (rtimer_clock_t)((sync - now) &
+        	                    (cycle_time - 1));
+    } else {
+
+        wait = (rtimer_clock_t)((cycle_time - (now - e->time)%(cycle_time)));
+
+    }
+     
     if(wait < guard_time) {
       wait += cycle_time;
     }
