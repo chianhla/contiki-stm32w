@@ -85,10 +85,15 @@ typedef unsigned short uip_stats_t;
 /* Radio cycling */
 #define NETSTACK_CONF_NETWORK		sicslowpan_driver
 #define NETSTACK_CONF_MAC		csma_driver
-#define NETSTACK_CONF_RDC		cxmac_driver
+#define NETSTACK_CONF_RDC		contikimac_driver
 #define NETSTACK_CONF_FRAMER		framer_802154
 /* Channel check rate */
-#define NETSTACK_CONF_RDC_CHANNEL_CHECK_RATE 16
+#define NETSTACK_CONF_RDC_CHANNEL_CHECK_RATE 8
+#define RDC_CONF_HARDWARE_ACK           1
+#define RDC_CONF_HARDWARE_CSMA          0
+#define CONTIKIMAC_CONF_WITH_CONTIKIMAC_HEADER  0
+#define WITH_FAST_SLEEP                 0
+
 #define RIMEADDR_CONF_SIZE              8
 #define UIP_CONF_LL_802154              1
 
