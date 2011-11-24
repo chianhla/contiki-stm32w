@@ -46,7 +46,7 @@
 #include "sys/clock.h"
 
 
-#define RT_RESOLUTION RES_171US
+#define RT_RESOLUTION RES_85US //RES_171US
 
 
 #define RES_341US 0
