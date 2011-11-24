@@ -115,7 +115,7 @@ static int is_receiver_awake = 0;
    consists of two or more CCA checks. CCA_COUNT_MAX is the number of
    CCAs to be done for each periodic channel check. The default is
    two.*/
-#define CCA_COUNT_MAX                      2
+#define CCA_COUNT_MAX                      3
 
 /* Before starting a transmission, Contikimac checks the availability
    of the channel with CCA_COUNT_MAX_TX consecutive CCAs */
@@ -164,7 +164,7 @@ static int is_receiver_awake = 0;
 
 /* GUARD_TIME is the time before the expected phase of a neighbor that
    a transmitted should begin transmitting packets. */
-#define GUARD_TIME                         10 * CHECK_TIME + CHECK_TIME_TX
+#define GUARD_TIME                         4 * CHECK_TIME + CHECK_TIME_TX
 
 /* INTER_PACKET_INTERVAL is the interval between two successive packet transmissions */
 #define INTER_PACKET_INTERVAL              RTIMER_ARCH_SECOND / 5000
@@ -749,7 +749,7 @@ send_packet(mac_callback_t mac_callback, void *mac_callback_ptr, struct rdc_buf_
 
   off();
 
-  PRINTF("contikimac: send (strobes=%u, len=%u, %s, %s), done\n", strobes,
+  printf("contikimac: send (strobes=%u, len=%u, %s, %s), done\n", strobes,
          packetbuf_totlen(),
          got_strobe_ack ? "ack" : "no ack",
          collisions ? "collision" : "no collision");
