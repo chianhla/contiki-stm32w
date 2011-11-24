@@ -53,12 +53,13 @@
 
 #include "net/packetbuf.h"
 #include "net/rime/rimestats.h"
-
+#include "sys/rtimer.h"
 
 
 #define DEBUG 0
+#define LED_RDC 1
 #include "dev/leds.h"
-#define LED_ACTIVITY 0
+#define LED_ACTIVITY 1
 
 
 #if DEBUG > 0
@@ -71,17 +72,37 @@
 #if LED_ACTIVITY
 #define LED_TX_ON() leds_on(LEDS_GREEN)
 #define LED_TX_OFF() leds_off(LEDS_GREEN)
-#define LED_RX_ON() leds_on(LEDS_RED)
-#define LED_RX_OFF() leds_off(LEDS_RED)
+#define LED_RX_ON()     {                                       \
+                                if(LED_RDC == 0){               \
+                                  leds_on(LEDS_RED);            \
+                                }                               \
+                        }
+#define LED_RX_OFF()    {                                       \
+                                if(LED_RDC == 0){               \
+                                  leds_off(LEDS_RED);            \
+                                }                               \
+                        }
+#define LED_RDC_ON()    {                                       \
+                                if(LED_RDC == 1){               \
+                                  leds_on(LEDS_RED);            \
+                                }                               \
+                        }
+#define LED_RDC_OFF()   {                                       \
+                                if(LED_RDC == 1){               \
+                                  leds_off(LEDS_RED);            \
+                                }                               \
+                        }
 #else
 #define LED_TX_ON()
 #define LED_TX_OFF()
 #define LED_RX_ON()
 #define LED_RX_OFF()
+#define LED_RDC_ON()
+#define LED_RDC_OFF() 
 #endif
 
 #ifndef MAC_RETRIES
-#define MAC_RETRIES 1
+#define MAC_RETRIES 0
 #endif
 
 #if MAC_RETRIES
@@ -116,10 +137,10 @@
 
 const RadioTransmitConfig radioTransmitConfig = {
   TRUE,  // waitForAck;
-  TRUE, // checkCca;     // Set to FALSE with low-power MACs.
-  4,     // ccaAttemptMax;
-  2,     // backoffExponentMin;
-  6,     // backoffExponentMax;
+  FALSE, // checkCca;     // Set to FALSE with low-power MACs.
+  0,     // ccaAttemptMax;
+  0,     // backoffExponentMin;
+  0,     // backoffExponentMax;
   TRUE   // appendCrc;
 };
 
@@ -173,6 +194,20 @@ static uint8_t receiving_packet = 0;
 static s8 last_rssi;
 static volatile StStatus last_tx_status;
 
+#define BUSYWAIT_UNTIL(cond, max_time)                                  \
+  do {                                                                  \
+    rtimer_clock_t t0;                                                  \
+    t0 = RTIMER_NOW();                                                  \
+    while(!(cond) && RTIMER_CLOCK_LT(RTIMER_NOW(), t0 + (max_time)));   \
+  } while(0)
+
+static uint8_t locked;
+#define GET_LOCK() locked++
+static void RELEASE_LOCK(void) {
+  if(locked>0)
+       locked--;
+}
+static volatile uint8_t is_transmit_ack;
 /*---------------------------------------------------------------------------*/
 PROCESS(stm32w_radio_process, "STM32W radio driver");
 /*---------------------------------------------------------------------------*/
@@ -208,20 +243,21 @@ const struct radio_driver stm32w_radio_driver =
 /*---------------------------------------------------------------------------*/
 static int stm32w_radio_init(void)
 {
-  
   // A channel needs also to be setted.
   ST_RadioSetChannel(RF_CHANNEL);
 
   // Initialize radio (analog section, digital baseband and MAC).
   // Leave radio powered up in non-promiscuous rx mode.
   ST_RadioInit(ST_RADIO_POWER_MODE_OFF);
+  
   onoroff = OFF;
   ST_RadioSetNodeId(STM32W_NODE_ID);   // To be deleted.
   ST_RadioSetPanId(IEEE802154_PANID);
   
   CLEAN_RXBUFS();
   CLEAN_TXBUF();
-  
+  ST_RadioEnableAutoAck(1);
+  locked = 0;
   process_start(&stm32w_radio_process, NULL);
   
   return 0;
@@ -286,11 +322,15 @@ static int stm32w_radio_transmit(unsigned short payload_len)
     INIT_RETRY_CNT();
     
     if(onoroff == OFF){
-      PRINTF("stm32w: Radio is off, turning it on.\r\n");
+      PRINTF("stm32w: Radio is off, turning on.\r\n");
       ST_RadioWake();
       ENERGEST_ON(ENERGEST_TYPE_LISTEN);
     }
-  
+
+#if RADIO_WAIT_FOR_PACKET_SENT
+    GET_LOCK();
+#endif /* RADIO_WAIT_FOR_PACKET_SENT */ 
+    last_tx_status = -1;
     LED_TX_ON();
     if(ST_RadioTransmit(stm32w_txbuf)==ST_SUCCESS){
         
@@ -312,14 +352,23 @@ static int stm32w_radio_transmit(unsigned short payload_len)
         PRINTF("stm32w: unknown tx error.\r\n");
         TO_PREV_STATE();
         LED_TX_OFF();
+        RELEASE_LOCK();
         return RADIO_TX_ERR;
       }
-      
+      //Should wait for ST_RadioTransmitCompleteIsrCallback to return the correct status
+      BUSYWAIT_UNTIL(!(last_tx_status==-1), RTIMER_SECOND / 100);
       TO_PREV_STATE();
-      if(last_tx_status == ST_SUCCESS || last_tx_status == ST_PHY_ACK_RECEIVED){
-        return RADIO_TX_OK;
+      if(last_tx_status == ST_SUCCESS || last_tx_status == ST_PHY_ACK_RECEIVED || last_tx_status == ST_MAC_NO_ACK_RECEIVED){
+        RELEASE_LOCK();
+	if(last_tx_status == ST_PHY_ACK_RECEIVED){
+	  return RADIO_TX_OK; //ACK status
+        } 
+        else if (last_tx_status == ST_MAC_NO_ACK_RECEIVED || last_tx_status == ST_SUCCESS){
+          return RADIO_TX_NOACK; 
+        }
       }
-      LED_TX_OFF();
+      LED_TX_OFF(); 
+      RELEASE_LOCK();	 
       return RADIO_TX_ERR;
           
 #else /* RADIO_WAIT_FOR_PACKET_SENT */      
@@ -331,7 +380,10 @@ static int stm32w_radio_transmit(unsigned short payload_len)
 #endif /* RADIO_WAIT_FOR_PACKET_SENT */
       
     }
-    
+
+#if RADIO_WAIT_FOR_PACKET_SENT
+    RELEASE_LOCK();
+#endif /* RADIO_WAIT_FOR_PACKET_SENT */     
     TO_PREV_STATE();
     
     PRINTF("stm32w: transmission never started.\r\n");
@@ -372,7 +424,14 @@ static int stm32w_radio_off(void)
   /* Any transmit or receive packets in progress are aborted.
    * Waiting for end of transmission or reception have to be done.
    */
-  if(onoroff == ON){
+  if(locked)
+  {
+    PRINTF("stm32w: try to off while sending/receiving (lock=%u).\r\n", locked);
+    return 0;
+  }
+  // off only if there is no transmission or reception of packet.
+  if(onoroff == ON && TXBUF_EMPTY() && !receiving_packet){
+    LED_RDC_OFF();
     ST_RadioSleep();
     onoroff = OFF;
     CLEAN_TXBUF();
@@ -387,6 +446,7 @@ static int stm32w_radio_off(void)
 static int stm32w_radio_on(void)
 {
   if(onoroff == OFF){
+    LED_RDC_ON();
     ST_RadioWake();
     onoroff = ON;
   
@@ -417,6 +477,19 @@ void ST_RadioReceiveIsrCallback(u8 *packet,
     last_rssi = rssi;
   }
   LED_RX_OFF();
+  GET_LOCK();
+  is_transmit_ack = 1;
+  //Wait for sending ACK
+  BUSYWAIT_UNTIL(!is_transmit_ack, RTIMER_SECOND / 1500);
+  RELEASE_LOCK();
+  
+}
+
+void ST_RadioTxAckIsrCallback (void)
+{ 
+  //This callback is for simplemac 1.1.0. Till now we block (RTIMER_SECOND / 1500) to prevent radio off during ACK transmission	
+  is_transmit_ack = 0;
+  //RELEASE_LOCK();
 }
 
 
